@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -43,6 +44,8 @@ type Olympus struct {
 	exitChan chan struct{}
 }
 
+var wg sync.WaitGroup
+
 // New creates a new instance of the Olympus client.
 func New() *Olympus {
 	return &Olympus{
@@ -60,19 +63,6 @@ func (o *Olympus) Start() error {
 
 	o.conn = conn
 
-	go func() {
-		defer o.conn.Close()
-
-		for {
-			select {
-			case <-o.exitChan:
-				return
-			default:
-				// Handle other cases, if any
-			}
-		}
-	}()
-
 	return nil
 }
 
@@ -83,6 +73,7 @@ func (o *Olympus) Stop() {
 
 // Log sends a log message to the Olympus server daemon.
 func (o *Olympus) Log(message LogEntry) error {
+	defer wg.Done()
 	if o.conn == nil {
 		return fmt.Errorf("connection to Olympus server is not established")
 	}
@@ -96,13 +87,14 @@ func (o *Olympus) Log(message LogEntry) error {
 	if err != nil {
 		return fmt.Errorf("failed to send log message: %v", err)
 	}
+	answer := make([]byte, 2)
+	o.conn.Read(answer)
 
 	return nil
 }
 
-func main() {
+func RunParallel(n int) {
 	olympus := New()
-
 	err := olympus.Start()
 	if err != nil {
 		log.Fatalf("Failed to start Olympus client: %v", err)
@@ -112,7 +104,7 @@ func main() {
 		Message_:  "Hello, Olympus!",
 		TimeStamp: time.Now().Unix(),
 		LogOwner: LogOwner{
-			HostName: "localhost",
+			HostName: "mac",
 			AppName:  "olympus-client",
 		},
 		Log: Log{
@@ -121,10 +113,25 @@ func main() {
 		},
 	}
 
-	err = olympus.Log(message)
-	if err != nil {
-		log.Printf("Error logging message: %v", err)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go olympus.Log(message)
+		wg.Wait()
 	}
 
 	olympus.Stop()
+}
+
+func main() {
+	arr := []int{10}
+
+	number_of_log := 10
+	for _, v := range arr {
+		start := time.Now().UnixMilli()
+		for i := 0; i < v; i++ {
+			RunParallel(number_of_log)
+		}
+		elapsed := time.Now().UnixMilli() - start
+		fmt.Printf("It took %d ms for %d client to run %d querry\n", elapsed, v, number_of_log)
+	}
 }
