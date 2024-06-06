@@ -3,12 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
-	"strconv"
-	"sync"
-	"time"
 )
+
+const SOCKET_PATH = "/tmp/olympus_socket.sock"
+
+type ConnectionOptions struct {
+	wait  bool // should you wait for a response
+	retry int8 // if 0 then no retry
+}
 
 // Log represents a log entry in the logs table.
 type Log struct {
@@ -24,100 +27,87 @@ type Log struct {
 	LogAttributes      map[string]string
 }
 
-// Olympus represents a client for the Olympus server daemon.
-type Olympus struct {
-	conn     net.Conn
-	exitChan chan struct{}
+// EvenscribeConnection represents a client for the Evenscribe server daemon.
+type EvenscribeConnection struct {
+	connection        net.Conn
+	connectionOptions ConnectionOptions
+	exitChan          chan struct{}
 }
 
-var wg sync.WaitGroup
-
-// New creates a new instance of the Olympus client.
-func New() *Olympus {
-	return &Olympus{
-		exitChan: make(chan struct{}),
+// New creates a new instance of the Evenscribe client.
+func New(connectionOptions ConnectionOptions) *EvenscribeConnection {
+	return &EvenscribeConnection{
+		connectionOptions: connectionOptions,
+		exitChan:          make(chan struct{}),
 	}
 }
 
-// Start establishes a connection to the Olympus server daemon and starts a goroutine
-// to handle the connection and listen for the exit signal.
-func (o *Olympus) Start() error {
-	conn, err := net.Dial("unix", "/tmp/olympus_socket.sock")
+// Start establishes a connection to the Evenscribe server daemon
+func (o *EvenscribeConnection) Start() error {
+	conn, err := net.Dial("unix", SOCKET_PATH)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to connect to server socket; make sure the evenscribe server is running. : %v", err)
 	}
-
-	o.conn = conn
-
+	o.connection = conn
 	return nil
 }
 
-// Stop sends a signal to gracefully stop the Olympus client instance.
-func (o *Olympus) Stop() {
+// Stop sends a signal to gracefully stop the Evenscribe client instance.
+func (o *EvenscribeConnection) Stop() {
 	close(o.exitChan)
 }
 
-// Log sends a log message to the Olympus server daemon.
-func (o *Olympus) Log(message Log) error {
-	defer wg.Done()
-	if o.conn == nil {
-		return fmt.Errorf("connection to Olympus server is not established")
+// Log sends a log message to the Evenscribe server daemon.
+func (o *EvenscribeConnection) Log(message Log) (err error) {
+	if o.connection == nil {
+		return fmt.Errorf("connection couldn't not established : %v", err)
 	}
-
 	data, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("failed to marshal log message: %v", err)
+		return fmt.Errorf("failed to parse log message as json: %v", err)
 	}
-
-	_, err = o.conn.Write(data)
+	_, err = o.connection.Write(data)
 	if err != nil {
-		return fmt.Errorf("failed to send log message: %v", err)
+		return fmt.Errorf("failed to write log message: %v", err)
 	}
-	answer := make([]byte, 2)
-	o.conn.Read(answer)
-
+	if !o.connectionOptions.wait {
+		return nil
+	}
+	ans := make([]byte, 2)
+	o.connection.Read(ans)
+	if string(ans) == "OK" {
+		return nil
+	}
+	if string(ans) == "NO" {
+		if o.connectionOptions.retry > 0 {
+			var int = o.connectionOptions.retry
+			for int > 0 {
+				res, _ := o.Retry(message)
+				if string(res) == "OK" {
+					return nil
+				}
+				int--
+			}
+			return fmt.Errorf("retry limit exceeded, could not send log message")
+		}
+	}
 	return nil
 }
 
-func RunParallel(n int) {
-	olympus := New()
-	err := olympus.Start()
+// Retry sends a log message to the Evenscribe server daemon and returns the response.
+func (o *EvenscribeConnection) Retry(message Log) (res []byte, err error) {
+	if o.connection == nil {
+		return res, fmt.Errorf("connection is not established")
+	}
+	data, err := json.Marshal(message)
 	if err != nil {
-		log.Fatalf("Failed to start Olympus client: %v", err)
+		return res, err
 	}
-
-	logEntry := Log{
-		Timestamp:          strconv.FormatInt(time.Now().Unix(), 10),
-		TraceId:            "trace-id-123",
-		SpanId:             "span-id-456",
-		TraceFlags:         1,
-		SeverityText:       "ERROR",
-		SeverityNumber:     3,
-		ServiceName:        "example-service",
-		Body:               "This is a log message",
-		ResourceAttributes: map[string]string{"env": "production", "version": "1.0.0"},
-		LogAttributes:      map[string]string{"user_id": "12345", "operation": "create"},
+	_, err = o.connection.Write(data)
+	if err != nil {
+		return res, err
 	}
-
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go olympus.Log(logEntry)
-		wg.Wait()
-	}
-
-	olympus.Stop()
-}
-
-func main() {
-	arr := []int{1}
-
-	number_of_log := 1
-	for _, v := range arr {
-		start := time.Now().UnixMilli()
-		for i := 0; i < v; i++ {
-			RunParallel(number_of_log)
-		}
-		elapsed := time.Now().UnixMilli() - start
-		fmt.Printf("It took %d ms for %d client to run %d querry\n", elapsed, v, number_of_log)
-	}
+	ans := make([]byte, 2)
+	o.connection.Read(ans)
+	return ans, nil
 }
