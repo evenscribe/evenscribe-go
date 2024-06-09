@@ -15,23 +15,23 @@ type ConnectionOptions struct {
 
 // Log represents a log entry in the logs table.
 type Log struct {
-	Timestamp          int64
-	TraceId            string
-	SpanId             string
-	TraceFlags         uint32
-	SeverityText       string
-	SeverityNumber     int32
-	ServiceName        string
-	Body               string
 	ResourceAttributes map[string]string
 	LogAttributes      map[string]string
+	TraceId            string
+	SpanId             string
+	SeverityText       string
+	ServiceName        string
+	Body               string
+	Timestamp          int64
+	TraceFlags         uint32
+	SeverityNumber     int32
 }
 
 // EvenscribeConnection represents a client for the EvenscribeConnection server daemon.
 type EvenscribeConnection struct {
 	connection        net.Conn
-	connectionOptions ConnectionOptions
 	exitChan          chan struct{}
+	connectionOptions ConnectionOptions
 }
 
 // New creates a new instance of the Olympus client.
@@ -85,7 +85,7 @@ func (o *EvenscribeConnection) Log(message Log) (err error) {
 	if string(ans) == "OK" || o.connectionOptions.retry == 0 {
 		return nil
 	}
-	var int = o.connectionOptions.retry
+	int := o.connectionOptions.retry
 	for int > 0 {
 		res, _ := o.Retry(message)
 		if string(res) == "OK" {
