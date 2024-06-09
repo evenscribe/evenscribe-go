@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 )
 
+const APP_NAME = "evenscribe"
 const SOCKET_PATH = "/tmp/olympus_socket.sock"
 
 type ConnectionOptions struct {
@@ -47,7 +49,7 @@ func New(connectionOptions ConnectionOptions) *EvenscribeConnection {
 func (o *EvenscribeConnection) Connect() error {
 	conn, err := net.Dial("unix", SOCKET_PATH)
 	if err != nil {
-		return fmt.Errorf("failed to connect to server socket; make sure the evenscribe server is running. : %v", err)
+		return fmt.Errorf("[%s] failed to connect to server socket; make sure the evenscribe server is running. : %v", APP_NAME, err)
 	}
 	o.connection = conn
 	return nil
@@ -60,60 +62,71 @@ func (o *EvenscribeConnection) Stop() {
 
 // Log sends a log message to the Olympus server daemon.
 func (o *EvenscribeConnection) Log(message Log) (err error) {
-	e := o.Connect()
-	if e != nil {
-		println("Connect error;")
-	}
+	var attempt int8
+	for attempt = 0; attempt <= o.connectionOptions.retry; attempt++ {
+		err = o.Connect()
+		if err != nil {
+			return fmt.Errorf("[%s] connection couldn't not established : %v", APP_NAME, err)
+		}
+		if o.connection == nil {
+			return fmt.Errorf("[%s] connection isn't not established : %v", APP_NAME, err)
+		}
+		err = o.SendLog(message)
 
-	if o.connection == nil {
-		return fmt.Errorf("connection couldn't not established : %v", err)
+		if err == nil {
+			return nil
+		}
+
+		if attempt == 0 {
+			fmt.Printf("[%s] Failed to save log message.", APP_NAME)
+		} else {
+			fmt.Printf("[%s] Retrying to save log failed (%d/%d).\n", APP_NAME, attempt, o.connectionOptions.retry)
+		}
 	}
+	return fmt.Errorf("[%s] retry limit exceeded, could not save log message", APP_NAME)
+}
+
+func (o *EvenscribeConnection) SendLog(message Log) (err error) {
 	data, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("failed to parse log message as json: %v", err)
+		return fmt.Errorf("[%s] failed to parse log message as json: %v", APP_NAME, err)
 	}
+
 	_, err = o.connection.Write(data)
 	if err != nil {
-		return fmt.Errorf("failed to write log message: %v", err)
+		return fmt.Errorf("[%s] failed to write to socket : %v", APP_NAME, err)
 	}
+
 	if !o.connectionOptions.wait {
 		return nil
 	}
+
 	ans := make([]byte, 2)
 	o.connection.Read(ans)
 
-	if string(ans) == "OK" || o.connectionOptions.retry == 0 {
+	if string(ans) == "OK" {
 		return nil
 	}
-	var int = o.connectionOptions.retry
-	for int > 0 {
-		res, _ := o.Retry(message)
-		if string(res) == "OK" {
-			return nil
-		}
-		int--
-	}
-	return fmt.Errorf("retry limit exceeded, could not send log message")
+
+	return fmt.Errorf("[%s] failed to write log message: %v", APP_NAME, err)
 }
 
-// Retry sends a log message to the Olympus server daemon and returns the response.
-func (o *EvenscribeConnection) Retry(message Log) (res []byte, err error) {
-	e := o.Connect()
-	if e != nil {
-		println("Connect error;")
+func main() {
+	olympus := New(ConnectionOptions{wait: true, retry: 3})
+	logEntry := Log{
+		Timestamp:          time.Now().Unix(),
+		TraceId:            "trace-id-123",
+		SpanId:             "span-id-456",
+		TraceFlags:         1,
+		SeverityText:       "ERROR",
+		SeverityNumber:     3,
+		ServiceName:        "example-service",
+		Body:               "This is a log message",
+		ResourceAttributes: map[string]string{"env": "production", "version": "1.0.0"},
+		LogAttributes:      map[string]string{"user_id": "12345", "operation": "create"},
 	}
-	if o.connection == nil {
-		return res, fmt.Errorf("connection is not established")
-	}
-	data, err := json.Marshal(message)
+	err := olympus.Log(logEntry)
 	if err != nil {
-		return res, err
+		fmt.Println(err)
 	}
-	_, err = o.connection.Write(data)
-	if err != nil {
-		return res, err
-	}
-	ans := make([]byte, 2)
-	o.connection.Read(ans)
-	return ans, nil
 }
