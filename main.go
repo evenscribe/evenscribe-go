@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"time"
 )
@@ -22,7 +23,7 @@ type Log struct {
 	SpanId             string
 	TraceFlags         uint32
 	SeverityText       string
-	SeverityNumber     int32
+	SeverityNumber     int
 	ServiceName        string
 	Body               string
 	ResourceAttributes map[string]string
@@ -62,28 +63,25 @@ func (o *EvenscribeConnection) Stop() {
 
 // Log sends a log message to the Olympus server daemon.
 func (o *EvenscribeConnection) Log(message Log) (err error) {
-	var attempt int8
-	for attempt = 0; attempt <= o.connectionOptions.retry; attempt++ {
-		err = o.Connect()
-		if err != nil {
-			return fmt.Errorf("[%s] connection couldn't not established : %v", APP_NAME, err)
-		}
-		if o.connection == nil {
-			return fmt.Errorf("[%s] connection isn't not established : %v", APP_NAME, err)
-		}
-		err = o.SendLog(message)
-
-		if err == nil {
-			return nil
-		}
-
-		if attempt == 0 {
-			fmt.Printf("[%s] Failed to save log message.", APP_NAME)
-		} else {
-			fmt.Printf("[%s] Retrying to save log failed (%d/%d).\n", APP_NAME, attempt, o.connectionOptions.retry)
-		}
+	if o.connection == nil {
+		return fmt.Errorf("[%s] connection isn't not established : %v", APP_NAME, err)
+	}
+	err = o.SendLog(message)
+	if err == nil {
+		return nil
 	}
 	return fmt.Errorf("[%s] retry limit exceeded, could not save log message", APP_NAME)
+}
+
+func pad(input []byte) []byte {
+	const targetSize = 2000
+	inputSize := len(input)
+	padded := make([]byte, targetSize)
+	copy(padded, input)
+	for i := inputSize; i < targetSize; i++ {
+		padded[i] = ' '
+	}
+	return padded
 }
 
 func (o *EvenscribeConnection) SendLog(message Log) (err error) {
@@ -91,42 +89,40 @@ func (o *EvenscribeConnection) SendLog(message Log) (err error) {
 	if err != nil {
 		return fmt.Errorf("[%s] failed to parse log message as json: %v", APP_NAME, err)
 	}
-
+	data = pad(data)
 	_, err = o.connection.Write(data)
 	if err != nil {
-		return fmt.Errorf("[%s] failed to write to socket : %v", APP_NAME, err)
+		return fmt.Errorf("[%s] failed to parse log message as json: %v", APP_NAME, err)
 	}
-
-	if !o.connectionOptions.wait {
-		return nil
-	}
-
-	ans := make([]byte, 2)
-	o.connection.Read(ans)
-
-	if string(ans) == "OK" {
-		return nil
-	}
-
-	return fmt.Errorf("[%s] failed to write log message: %v", APP_NAME, err)
+	return nil
 }
 
 func main() {
-	olympus := New(ConnectionOptions{wait: true, retry: 3})
 	logEntry := Log{
 		Timestamp:          time.Now().Unix(),
 		TraceId:            "trace-id-123",
 		SpanId:             "span-id-456",
 		TraceFlags:         1,
 		SeverityText:       "ERROR",
-		SeverityNumber:     3,
+		SeverityNumber:     (rand.Intn(5) + 1),
 		ServiceName:        "example-service",
 		Body:               "This is a log message",
 		ResourceAttributes: map[string]string{"env": "production", "version": "1.0.0"},
 		LogAttributes:      map[string]string{"user_id": "12345", "operation": "create"},
 	}
-	err := olympus.Log(logEntry)
-	if err != nil {
-		fmt.Println(err)
+	ladder := [...]int{1_000, 10_000, 100_000, 1_000_000}
+	olympus := New(ConnectionOptions{wait: false, retry: 0})
+	olympus.Connect()
+	for _, v := range ladder {
+		start := time.Now()
+		err_count := 0
+		for i := 0; i < v; i++ {
+			err := olympus.Log(logEntry)
+			if err != nil {
+				err_count++
+			}
+		}
+		elapsed := time.Since(start)
+		fmt.Printf("%d took %s with %d\n", v, elapsed, err_count)
 	}
 }
