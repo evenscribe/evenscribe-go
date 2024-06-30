@@ -1,3 +1,3 @@
-module github.com/Olympus-Observatory/Olympus.go
+module github.com/evenscribe/evenscribe-go
 
 go 1.22.2
