@@ -1,7 +1,5 @@
 package evenscribe
 
-import "errors"
-
 // Options to build the Evenscribe client
 type Options struct {
 	// Number of retries, Default: 5
@@ -22,10 +20,6 @@ type Options struct {
 	// 	"region":      "us-west-1",
 	// }
 	ResourceAttributes map[string]string
-	// Default Severity of logger (if not specified)
-	//
-	// default: INFO
-	DefaultSeverity Severity
 	// Print to stdout,
 	//
 	// Default: true
@@ -36,19 +30,12 @@ func NewOptions() *Options {
 	return &Options{}
 }
 
-func (o *Options) Validate() error {
-	if o.ServiceName == "" {
-		return errors.New("service name is required")
-	}
-	return nil
-}
-
+// Build Options with defaults
 func (o *Options) WithDefaults() *Options {
 	o.Retry = 5
 	o.MaxExecutionTime = 1000
-	o.SocketAddr = "/tmp/evenscribe.sock"
+	o.SocketAddr = "/tmp/olympus_socket.sock"
 	o.ServiceName = ""
-	o.DefaultSeverity = INFO
 	o.PrintToStdout = true
 	return o
 }
@@ -75,11 +62,6 @@ func (o *Options) WithServiceName(serviceName string) *Options {
 
 func (o *Options) WithResourceAttributes(resourceAttributes map[string]string) *Options {
 	o.ResourceAttributes = resourceAttributes
-	return o
-}
-
-func (o *Options) WithDefaultSeverity(defaultSeverity Severity) *Options {
-	o.DefaultSeverity = defaultSeverity
 	return o
 }
 
