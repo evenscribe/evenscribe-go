@@ -1,11 +1,10 @@
 package evenscribe
 
 import (
+	stdlog "log"
 	"log/slog"
 	"net"
 	"sync"
-
-	stdlog "log"
 
 	"github.com/goccy/go-json"
 )
@@ -14,7 +13,7 @@ var loggerInstance *Logger
 
 type Logger struct {
 	conn net.Conn
-	mx   sync.Mutex
+	mx   sync.RWMutex
 	*Options
 }
 
@@ -156,7 +155,7 @@ func FatalS(msg string, args ...any) {
 }
 
 func pad(input []byte) []byte {
-	const targetSize = 2000
+	const targetSize = 1000
 	inputSize := len(input)
 	padded := make([]byte, targetSize)
 	copy(padded, input)
@@ -168,25 +167,25 @@ func pad(input []byte) []byte {
 
 func writeS(msg string, severity Severity, args ...any) {
 	logger := GetLogger()
-	logger.mx.Lock()
-	defer logger.mx.Unlock()
-	l := NewLogBuilder().
+	logger.mx.RLock()
+	defer logger.mx.RUnlock()
+	log := NewLogBuilder().
 		WithBody(msg).
 		WithSeverity(severity).
 		WithResourceAttributes(logger.ResourceAttributes).
 		WithServiceName(logger.ServiceName).
 		WithArgs(args...).
 		Build()
-	go WriteLogToSocket(l)
+	go WriteLogToSocket(log)
 	if logger.PrintToStdout {
-		stdlog.Printf("%+v", l)
+		stdlog.Printf("%+v", log)
 	}
 }
 
 func write(msg string, severity Severity) {
 	logger := GetLogger()
-	logger.mx.Lock()
-	defer logger.mx.Unlock()
+	logger.mx.RLock()
+	defer logger.mx.RUnlock()
 
 	log := NewLogBuilder().
 		WithBody(msg).
