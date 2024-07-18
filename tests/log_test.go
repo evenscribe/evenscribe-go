@@ -5,22 +5,8 @@ import (
 	"testing"
 )
 
-// func IntMin(a, b int) int {
-// 	if a < b {
-// 		return a
-// 	}
-// 	return b
-// }
-//
-// func BenchmarkIntMin(b *testing.B) {
-//
-// 	for i := 0; i < b.N; i++ {
-// 		IntMin(1, 2)
-// 	}
-// }
-
 func BenchmarkLoggging(b *testing.B) {
-	b.Run("Lsdds", func(b *testing.B) {
+	b.Run("Logging Efficiency Benchmark", func(b *testing.B) {
 		err := log.NewLogger(
 			log.NewOptions().
 				WithDefaults().

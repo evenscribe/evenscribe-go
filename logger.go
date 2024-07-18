@@ -2,7 +2,6 @@ package evenscribe
 
 import (
 	stdlog "log"
-	"log/slog"
 	"net"
 	"sync"
 
@@ -14,6 +13,7 @@ var loggerInstance *Logger
 type Logger struct {
 	conn net.Conn
 	mx   sync.RWMutex
+	logs chan Log
 	*Options
 }
 
@@ -26,32 +26,41 @@ func SetLogger(logger *Logger) {
 }
 
 func NewLogger(options *Options) error {
-	SetLogger(&Logger{Options: options})
+	l := Logger{Options: options}
+	logChannel := make(chan Log, 1000)
 
-	GetLogger().mx.Lock()
-	defer GetLogger().mx.Unlock()
+	for workerID := 0; workerID < options.NumberOfWorkers; workerID++ {
+		go workerRoutine(workerID, logChannel)
+	}
+	l.logs = logChannel
 
-	socket, err := net.Dial("unix", GetLogger().SocketAddr)
+	socket, err := net.Dial("unix", l.SocketAddr)
 	if err != nil {
 		return err
 	}
-	GetLogger().conn = socket
+	l.conn = socket
+
+	SetLogger(&l)
 	return nil
 }
 
 func NewWithDefaultOptions() error {
-	SetLogger(&Logger{Options: NewOptions().WithDefaults()})
+	return NewLogger(NewOptions().WithDefaults())
+}
 
-	GetLogger().mx.Lock()
-	defer GetLogger().mx.Unlock()
+func workerRoutine(_ int, logs <-chan Log) {
+	var wg sync.WaitGroup
 
-	socket, err := net.Dial("unix", GetLogger().SocketAddr)
-	if err != nil {
-		return err
+	for l := range logs {
+		wg.Add(1)
+		go func(l Log) {
+			WriteLogToSocket(&l)
+			wg.Done()
+		}(l)
+
 	}
 
-	GetLogger().conn = socket
-	return nil
+	wg.Wait()
 }
 
 // Info logs with Severity of INFO.
@@ -176,10 +185,10 @@ func writeS(msg string, severity Severity, args ...any) {
 		WithServiceName(logger.ServiceName).
 		WithArgs(args...).
 		Build()
-	go WriteLogToSocket(log)
 	if logger.PrintToStdout {
 		stdlog.Printf("%+v", log)
 	}
+	logger.logs <- *log
 }
 
 func write(msg string, severity Severity) {
@@ -198,7 +207,7 @@ func write(msg string, severity Severity) {
 	if logger.PrintToStdout {
 		stdlog.Printf("%+v", log)
 	}
-	go WriteLogToSocket(log)
+	logger.logs <- *log
 
 }
 
@@ -208,10 +217,10 @@ func WriteLogToSocket(log *Log) {
 	defer logger.mx.Unlock()
 	stringifiedLog, err := json.Marshal(log)
 	if err != nil {
-		slog.Error("Failed to marshal log: %v", err)
+		stdlog.Printf("Failed to marshal log: %v", err)
 	}
 	_, err = logger.conn.Write(pad(stringifiedLog))
 	if err != nil {
-		slog.Error("Failed to write to socket: %v", err)
+		stdlog.Printf("Failed to write to socket: %v", err)
 	}
 }
