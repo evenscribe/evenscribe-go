@@ -24,6 +24,10 @@ type Options struct {
 	//
 	// Default: true
 	PrintToStdout bool
+	// Number of Workers
+	//
+	// Default: 5
+	NumberOfWorkers int
 }
 
 func NewOptions() *Options {
@@ -37,6 +41,7 @@ func (o *Options) WithDefaults() *Options {
 	o.SocketAddr = "/tmp/olympus_socket.sock"
 	o.ServiceName = ""
 	o.PrintToStdout = true
+	o.NumberOfWorkers = 5
 	return o
 }
 
@@ -67,5 +72,10 @@ func (o *Options) WithResourceAttributes(resourceAttributes map[string]string) *
 
 func (o *Options) WithPrintToStdout(printToStdout bool) *Options {
 	o.PrintToStdout = printToStdout
+	return o
+}
+
+func (o *Options) WithNumberOfWorkers(numberOfWorkers int) *Options {
+	o.NumberOfWorkers = numberOfWorkers
 	return o
 }

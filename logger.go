@@ -27,7 +27,7 @@ func SetLogger(logger *Logger) {
 
 func NewLogger(options *Options) error {
 	l := Logger{Options: options}
-	logChannel := make(chan Log, 1000)
+	logChannel := make(chan Log)
 
 	for workerID := 0; workerID < options.NumberOfWorkers; workerID++ {
 		go workerRoutine(workerID, logChannel)
