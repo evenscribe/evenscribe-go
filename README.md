@@ -7,6 +7,10 @@
 - ```go install https://github.com/evenscribe/evenscribe-go```
 - setup the logger
 ```go
+    import (
+        log "github.com/evenscribe/evenscribe-go"
+    )
+
 	err := log.NewLogger(
 			log.NewOptions().
 				WithDefaults().
