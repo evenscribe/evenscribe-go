@@ -24,6 +24,12 @@
 - Just get logging.
 
 ```go
+log.Info("i got clicked...")
+log.Fatal("oops... i broke")
+```
+
+
+```go
 log.InfoS("Hello world", "log-attributes", map[string]string{"hello": "world"}, "trace-id", 12333, "span-id", 11111)
 ```
 
